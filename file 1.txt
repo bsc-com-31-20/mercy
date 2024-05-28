@@ -1,0 +1,404 @@
+//camera.cs
+
+using OpenTK.Mathematics;
+using System;
+namespace GameSpace
+{
+    public class Camera
+    {
+        private Vector3 _front = -Vector3.UnitZ;
+        private Vector3 _up = Vector3.UnitY;
+        private Vector3 _right = Vector3.UnitX;
+        private float _pitch;
+        private float _yaw = -MathHelper.PiOver2; 
+        private float _fov = MathHelper.PiOver2;
+        public Camera(Vector3 position, float aspectRatio)
+        {
+            Position = position;
+            AspectRatio = aspectRatio;
+        }
+        public Vector3 Position { get; set; }
+        public float AspectRatio { private get; set; }
+        public Vector3 Front => _front;
+        public Vector3 Up => _up;
+        public Vector3 Right => _right;
+        public float Pitch
+        {
+            get => MathHelper.RadiansToDegrees(_pitch);
+            set
+            {
+                var angle = MathHelper.Clamp(value, -89f, 89f);
+                _pitch = MathHelper.DegreesToRadians(angle);
+                UpdateVectors();
+            }
+        }
+        public float Yaw
+        {
+            get => MathHelper.RadiansToDegrees(_yaw);
+            set
+            {
+                _yaw = MathHelper.DegreesToRadians(value);
+                UpdateVectors();
+            }
+        }
+        public float Fov
+        {
+            get => MathHelper.RadiansToDegrees(_fov);
+            set
+            {
+                var angle = MathHelper.Clamp(value, 1f, 90f);
+                _fov = MathHelper.DegreesToRadians(angle);
+            }
+        }
+        public Matrix4 GetViewMatrix()
+        {
+            return Matrix4.LookAt(Position, Position + _front, _up);
+        }
+        public Matrix4 GetProjectionMatrix()
+        {
+            return Matrix4.CreatePerspectiveFieldOfView(_fov, AspectRatio, 0.01f, 100f);
+        }
+        private void UpdateVectors()
+        {
+            _front.X = MathF.Cos(_pitch) * MathF.Cos(_yaw);
+            _front.Y = MathF.Sin(_pitch);
+            _front.Z = MathF.Cos(_pitch) * MathF.Sin(_yaw);
+            _front = Vector3.Normalize(_front);
+            _right = Vector3.Normalize(Vector3.Cross(_front, Vector3.UnitY));
+            _up = Vector3.Normalize(Vector3.Cross(_right, _front));
+        }
+    }
+}
+
+//game.cs
+using OpenTK.Graphics.OpenGL4;
+using OpenTK.Windowing.Common;
+using OpenTK.Windowing.Desktop;
+using OpenTK.Windowing.GraphicsLibraryFramework;
+using OpenTK.Mathematics;
+namespace GameSpace
+{
+    public class Game : GameWindow
+    {
+        float[] vertices = {
+        -0.5f, -0.5f,  0.5f,
+        0.5f, -0.5f,  0.5f,
+        0.5f,  0.5f,  0.5f,
+        0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f, -0.5f,
+        0.5f, -0.5f, -0.5f,
+        0.5f,  0.5f, -0.5f,
+        0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,
+        -0.5f, -0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,
+        0.5f,  0.5f, -0.5f,
+        0.5f,  0.5f,  0.5f,
+        0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f, -0.5f,
+        -0.5f, -0.5f, -0.5f,
+        0.5f, -0.5f, -0.5f,
+        0.5f, -0.5f,  0.5f,
+        0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f, -0.5f,
+        0.5f, -0.5f, -0.5f,
+        0.5f,  0.5f, -0.5f,
+        0.5f,  0.5f,  0.5f,
+        0.5f,  0.5f,  0.5f,
+        0.5f, -0.5f,  0.5f,
+        0.5f, -0.5f, -0.5f,
+        -0.5f, -0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f, -0.5f
+        };
+        Shader shader;
+        private Camera _camera;
+        private bool _firstMove = true;
+        private Vector2 _lastPos;
+        private double _time;
+        private Texture _texture;
+        int textureId;
+        float redCubeRotationSpeed = 20.0f; 
+        float yellowCubeOrbitSpeed = 5.0f; 
+        int VertexBufferObject;
+        int VertexArrayObject;
+        public Game(int width, int height, string title) : base(GameWindowSettings.Default, new NativeWindowSettings() { ClientSize = (width, height), Title = title }) { }
+    protected override void OnLoad()
+        {
+            base.OnLoad();
+            GL.ClearColor(0.4f, 0.7f, 0.5f, 1.0f); 
+            shader = new Shader("./shaders/shader.vert", "./shaders/shader.frag");
+             GL.Enable(EnableCap.DepthTest);
+            VertexBufferObject = GL.GenBuffer();
+            GL.BindBuffer(BufferTarget.ArrayBuffer, VertexBufferObject);
+            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
+            VertexArrayObject = GL.GenVertexArray();
+            GL.BindVertexArray(VertexArrayObject);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
+            GL.EnableVertexAttribArray(0);
+            _camera = new Camera(Vector3.UnitZ * 3, Size.X / (float)Size.Y);
+            CursorState = CursorState.Grabbed;
+        }
+    protected override void OnRenderFrame(FrameEventArgs e)
+    {
+        base.OnRenderFrame(e);
+        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit); 
+        var redCube = Matrix4.CreateTranslation(0.0f, 0.0f, 0.0f);
+        _time += 10.0 * e.Time;
+         redCube = Matrix4.Identity * Matrix4.CreateRotationY((float)MathHelper.DegreesToRadians(_time * redCubeRotationSpeed));
+        shader.SetMatrix4("model", redCube);
+        shader.SetVector3("color", new Vector3(1.0f, 0.0f, 0.0f));
+        shader.SetMatrix4("view", _camera.GetViewMatrix());
+        shader.SetMatrix4("projection", _camera.GetProjectionMatrix());
+        shader.Use();
+        GL.BindVertexArray(VertexArrayObject);
+        GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
+        var yellowCube = Matrix4.CreateTranslation(6.0f, 6.0f, 6.0f);
+        yellowCube *= Matrix4.CreateScale(0.25f);
+        yellowCube *= Matrix4.CreateRotationY((float)MathHelper.DegreesToRadians(_time * yellowCubeOrbitSpeed)); 
+        shader.SetMatrix4("model", yellowCube);
+        shader.SetVector3("color", new Vector3(1.0f, 1.0f, 0.0f));
+        GL.BindVertexArray(VertexArrayObject);
+        GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
+        var texturedCube = Matrix4.CreateTranslation(9.0f, 9.0f, 9.0f);
+        texturedCube *= Matrix4.CreateScale(0.125f); 
+        texturedCube *= Matrix4.CreateRotationY((float)MathHelper.DegreesToRadians(_time)); 
+        shader.SetMatrix4("model", texturedCube);
+        GL.GenTextures(1, out textureId);
+        GL.BindTexture(TextureTarget.Texture2D, textureId);
+        GL.BindVertexArray(VertexArrayObject);
+        GL.DrawArrays(PrimitiveType.Triangles, 0, 36);        
+        SwapBuffers(); 
+    }
+    protected override void OnUpdateFrame(FrameEventArgs e)
+        {
+            base.OnUpdateFrame(e);
+            if (!IsFocused) 
+            {
+                return;
+            }
+            var input = KeyboardState;
+            if (input.IsKeyDown(Keys.Delete))
+            {
+                Close();
+            }
+            const float cameraSpeed = 1.5f;
+            const float sensitivity = 0.2f;
+            if (input.IsKeyDown(Keys.W))
+            {
+                _camera.Position += _camera.Front * cameraSpeed * (float)e.Time; 
+            }
+            if (input.IsKeyDown(Keys.S))
+            {
+                _camera.Position -= _camera.Front * cameraSpeed * (float)e.Time; 
+            }
+            if (input.IsKeyDown(Keys.A))
+            {
+                _camera.Position += _camera.Right * cameraSpeed * (float)e.Time; 
+            }
+            if (input.IsKeyDown(Keys.D))
+            {
+                _camera.Position -= _camera.Right * cameraSpeed * (float)e.Time; 
+            }
+            var mouse = MouseState;
+            if (_firstMove) 
+            {
+                _lastPos = new Vector2(mouse.X, mouse.Y);
+                _firstMove = false;
+            }
+            else
+            {
+                var deltaX = mouse.X - _lastPos.X;
+                var deltaY = mouse.Y - _lastPos.Y;
+                _lastPos = new Vector2(mouse.X, mouse.Y);
+                _camera.Yaw += deltaX * sensitivity;
+                _camera.Pitch -= deltaY * sensitivity; 
+            }
+    if (input.IsKeyDown(Keys.Up))
+    {
+        redCubeRotationSpeed += 10.0f * (float)e.Time; 
+    }
+    if (input.IsKeyDown(Keys.Down))
+    {
+        redCubeRotationSpeed -= 10.0f * (float)e.Time; 
+        if (redCubeRotationSpeed < 0.0f)
+        {
+            redCubeRotationSpeed = 0.0f; 
+        }
+    }
+    if (input.IsKeyDown(Keys.Left))
+    {
+        yellowCubeOrbitSpeed += 0.1f * (float)e.Time; 
+    }
+    if (input.IsKeyDown(Keys.Right))
+    {
+        yellowCubeOrbitSpeed -= 0.1f * (float)e.Time; 
+        if (yellowCubeOrbitSpeed < 0.0f)
+        {
+            yellowCubeOrbitSpeed = 0.0f; 
+        }
+    }
+}
+    protected override void OnMouseWheel(MouseWheelEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            _camera.Fov -= e.OffsetY;
+        }
+    protected void OnFramebufferResize(ResizeEventArgs e)
+    {
+        base.OnResize(e);
+        GL.Viewport(0, 0, e.Width, e.Height);
+    }
+}
+}
+
+//shader.cs
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using OpenTK.Graphics.OpenGL4;
+using OpenTK.Mathematics;
+namespace GameSpace
+{
+    public class Shader
+    {
+        public readonly int Handle;
+        private readonly Dictionary<string, int> _uniformLocations;
+        public Shader(string vertPath, string fragPath)
+        {
+            var shaderSource = File.ReadAllText(vertPath);
+            var vertexShader = GL.CreateShader(ShaderType.VertexShader);
+            GL.ShaderSource(vertexShader, shaderSource);
+            CompileShader(vertexShader);
+            shaderSource = File.ReadAllText(fragPath);
+            var fragmentShader = GL.CreateShader(ShaderType.FragmentShader);
+            GL.ShaderSource(fragmentShader, shaderSource);
+            CompileShader(fragmentShader);
+            Handle = GL.CreateProgram();
+            GL.AttachShader(Handle, vertexShader);
+            GL.AttachShader(Handle, fragmentShader);
+            LinkProgram(Handle);
+            GL.DetachShader(Handle, vertexShader);
+            GL.DetachShader(Handle, fragmentShader);
+            GL.DeleteShader(fragmentShader);
+            GL.DeleteShader(vertexShader);
+            GL.GetProgram(Handle, GetProgramParameterName.ActiveUniforms, out var numberOfUniforms);
+            _uniformLocations = new Dictionary<string, int>();
+            for (var i = 0; i < numberOfUniforms; i++)
+            {
+                var key = GL.GetActiveUniform(Handle, i, out _, out _);
+                var location = GL.GetUniformLocation(Handle, key);
+                _uniformLocations.Add(key, location);
+            }
+        }
+        private static void CompileShader(int shader)
+        {
+            GL.CompileShader(shader);
+            GL.GetShader(shader, ShaderParameter.CompileStatus, out var code);
+            if (code != (int)All.True)
+            {
+                var infoLog = GL.GetShaderInfoLog(shader);
+                throw new Exception($"Error occurred whilst compiling Shader({shader}).\n\n{infoLog}");
+            }
+        }
+        private static void LinkProgram(int program)
+        {
+            GL.LinkProgram(program);
+            GL.GetProgram(program, GetProgramParameterName.LinkStatus, out var code);
+            if (code != (int)All.True)
+            {
+                throw new Exception($"Error occurred whilst linking Program({program})");
+            }
+        }
+        public void Use()
+        {
+            GL.UseProgram(Handle);
+        }
+        public int GetAttribLocation(string attribName)
+        {
+            return GL.GetAttribLocation(Handle, attribName);
+        }
+        public void SetInt(string name, int data)
+        {
+            GL.UseProgram(Handle);
+            GL.Uniform1(_uniformLocations[name], data);
+        }
+        public void SetFloat(string name, float data)
+        {
+            GL.UseProgram(Handle);
+            GL.Uniform1(_uniformLocations[name], data);
+        }
+        public void SetMatrix4(string name, Matrix4 data)
+        {
+            GL.UseProgram(Handle);
+            GL.UniformMatrix4(_uniformLocations[name], true, ref data);
+        }
+        public void SetVector3(string name, Vector3 data)
+        {
+            GL.UseProgram(Handle);
+            GL.Uniform3(_uniformLocations[name], data);
+        }
+    }
+}
+
+//texture.cs
+using OpenTK.Graphics.OpenGL4;
+using System.Drawing;
+using System.Drawing.Imaging;
+using PixelFormat = OpenTK.Graphics.OpenGL4.PixelFormat;
+using StbImageSharp;
+using System.IO;
+namespace GameSpace
+{
+    public class Texture
+    {
+        public readonly int Handle;
+        public static Texture LoadFromFile(string path)
+        {
+            int handle = GL.GenTexture();
+            GL.ActiveTexture(TextureUnit.Texture0);
+            GL.BindTexture(TextureTarget.Texture2D, handle);
+            StbImage.stbi_set_flip_vertically_on_load(1);
+            using (Stream stream = File.OpenRead(path))
+            {
+                ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, image.Width, image.Height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, image.Data);
+            }
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
+            GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
+            return new Texture(handle);
+        }
+        public Texture(int glHandle)
+        {
+            Handle = glHandle;
+        }
+        public void Use(TextureUnit unit)
+        {
+            GL.ActiveTexture(unit);
+            GL.BindTexture(TextureTarget.Texture2D, Handle);
+        }
+    }
+}
+
+//program.cs
+using GameSpace;
+class Program{
+    static void Main(string[] args){
+        using (Game game = new Game(800, 600, "Cubes"))
+{
+    game.Run();
+}
+    }
+}
+
